@@ -19,7 +19,7 @@ library('syuzhet')
 
 ##################### - Laden des Datensatzes - ################################
 
-dat <- read.csv('/Users/gilbert/Documents/Wise22:23/Text Mining/A4/AllProductReviews.csv')
+dat <- read.csv('')
 #Filtern des Datensatzes, sodass er nur noch Rezenssionen für das Produkt "boAt Rockerz 255" enthält
 dat <- dat[dat$Product == 'boAt Rockerz 255',]
 #Setzen eines seeds zur Replizierbarkeit des Samples
