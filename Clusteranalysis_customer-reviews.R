@@ -2,7 +2,6 @@
 
 rm(list = ls())
 
-#Laden der benötigten Packages
 library('tm')
 library('koRpus')
 library('tidyEmoji')
@@ -17,51 +16,47 @@ library('textclean')
 library('syuzhet')
 
 
-##################### - Laden des Datensatzes - ################################
-
 dat <- read.csv('')
-#Filtern des Datensatzes, sodass er nur noch Rezenssionen für das Produkt "boAt Rockerz 255" enthält
+#Filter the record so that it only contains reviews for the product "boAt Rockerz 255".
 dat <- dat[dat$Product == 'boAt Rockerz 255',]
-#Setzen eines seeds zur Replizierbarkeit des Samples
+#Setting a seed for the replicability of the sample
 set.seed(107173)
-#Ziehen eines Samples mit 500 Rezenssionen aus dem gefilterten Datensatzes
+#Drawing a sample of 500 reviews from the filtered dataset.
 dat <- dat[sample(nrow(dat),500),]
-#Löschen aller leeren Dokumente (keine enthalten)
+#Delete all empty documents 
 dat <- na.omit(dat)
 text_df <-  data.frame(doc_id = rownames(dat), title = dat$ReviewTitle,text = dat$ReviewBody)
-#Durchführen einer ersten Emoji-Analyse, da diese im Pre-processing transformiert werden sollen
+#Performing an initial emoji analysis, as these are to be transformed in pre-processing.
 top_n_emojis(text_df, text, n = 20, duplicated_unicode = "no")
 emoji_summary(text_df, text)
 
-##################### - Durchführung Pre-processing - ##########################
-
-#Erstellen des Corpus
+#Create the corpus
 corpus.prepro <- Corpus(VectorSource(text_df$text))
-#Bereinigung  von überflüssigen Leerzeichen
+#Clean up unnecessary spaces
 corpus.prepro <- tm_map(corpus.prepro,content_transformer(stripWhitespace))
-#Vereinheitlichung in Kleinschreibweise
+#Unification in small letters
 corpus.prepro <- tm_map(corpus.prepro,content_transformer(tolower))
-#Ersetzen von Emojis mit passenden Wortequivalenten
+#Replace emojis with matching word equivalents
 corpus.prepro <- tm_map(corpus.prepro,content_transformer(replace_emoji))
-#Ersetzen von Emoticon mit passenden Wortequivalenten
+#Replace emoticon with matching word equivalents
 corpus.prepro <- tm_map(corpus.prepro,content_transformer(replace_emoticon))
-#Bereinigung aller Nicht-Ascii-Zeichen
+#Cleanup all non-ascii characters
 corpus.prepro <- tm_map(corpus.prepro,content_transformer(replace_non_ascii))
-#Bereiniguen aller Sonderzeichen (im Laufe des Pre-processings wurde in Bezug auf den Datensatz
-#festgestelllt, das nach dem vorherigen Bereinigungsschritt noch Sonderzeichen enthalten waren, deswegen werden 
-#nicht abgedeckte Sonderzeichen konnten mit diesem Schritt entfernt werden)
+#Clean all special characters (during pre-processing, it was found that the data set still contained
+#that after the previous cleanup step still special characters were contained, therefore 
+#uncovered special characters could be removed with this step)
 corpus.prepro <- tm_map(corpus.prepro, content_transformer(function(x) gsub(x, pattern = "[^[:alnum:]]", replacement = " ")))
-#Bereinge Zahlen
+#Remove figures
 corpus.prepro <- tm_map(corpus.prepro,content_transformer(removeNumbers))
-#Bereinige Punktuationen
+#Clean up pointuations
 corpus.prepro <- tm_map(corpus.prepro,removePunctuation)
 
-#Standardisiere Negationen
+#Standardize negations
 negation_df <- data.frame(doc_id = 1:length(sapply(corpus.prepro,as.character)),
                           text = sapply(corpus.prepro,as.character))
 
-#Erstelle Wörterbuch mit Negationen die Standardisiert werden sollen
-#Beziehe Rechtschreibfehler (ohne ') mit ein
+#Create dictionary with negations to be standardized
+#Include spelling errors (without ')
 dictionary.neg <- c("ain't ","aren't ","can't ","couldn't ","didn't ",
                     "doesn't ","don't ","hasn't ","isn't ","mightn't ",
                     "mustn't ", "neither ","never ","no ","nobody ","nor ",      
@@ -71,8 +66,8 @@ dictionary.neg <- c("ain't ","aren't ","can't ","couldn't ","didn't ",
                     'dont ','hasnt ','isnt ','mightnt ','mustnt ','shant ',
                     'shouldnt ','wasnt ','werent ','wont ','wouldnt ')
 
-#Erstelle einen leeren Vektor in welchen die Doc_ID's und die jeweiligen Dokuemente
-#mit standardisierten Negierungen eingefügt werden sollen
+#Create an empty vector in which the Doc_ID's and the respective docs are to be inserted
+#with standardized negations are to be inserted
 vec_array <- array(
   dim = c(nrow(negation_df),2),
   dimnames = list(NULL, c('doc_ID','text'))
@@ -80,30 +75,24 @@ vec_array <- array(
 
 for (k in 1:nrow(negation_df)){
   vec1 <- negation_df$text[k]
-  #tokenisiere Dokument k aus negation_df 
+   #tokenize document k from negation_df 
   vec1 <- tokenize_words(vec1)
   vec1 <- unlist(vec1)
   vec1 <- paste(vec1, "")
   for(i in 1:length(vec1)){
     for (n in 1:length(dictionary.neg)){
-      #Gleiche das Token i mit jedem Wort aus dem angelegten Wörterbuch ab
-      #falls das Wort enthalten ist und nicht "never" ist (starke Negierung)
-      #dann tausche es mit "not_" aus
+      #Match the token i with every word from the created dictionary
+      #if the word is contained and is not "never" (strong negation)
+      #then replace it with "not_".
       if (vec1[i] == dictionary.neg[n]){
         if (dictionary.neg[n] != "never "){
         vec1[i] <- gsub(vec1[i],"not_",vec1[i])
         print(paste(c("Negation -",dictionary.neg[n],"-" ,"in row",k,"swapped with - not_ -"), collapse = " "))
-        #Füge die jeweilige Doc_ID zu vec_array
         vec_array[k,'doc_ID'] <- k
-        #Füge not_ und das Folgewort zusammen
         vec1[i] <- gsub(" ","",paste(vec1[i],vec1[i+1]))
-        #Entferne das Folgewort aus vec1 um Dopplung zu vermeiden
         vec1[i+1] <- ""
-        #Füge vec1 als string zu vec_array
         vec_array[k,'text'] <- gsub(",","",toString(vec1))
         }
-        #wenn die Negierung "never " ist, dann tausche sie mit "never_" aus
-        #und führe die gleichen Schritte wie für "not_" durch
         else {
         vec1[i] <- gsub(vec1[i],"never_",vec1[i])
         print(paste(c("Negation -",dictionary.neg[n],"-" ,"in row",k,"swapped with - never_ -"), collapse = " "))
@@ -113,8 +102,6 @@ for (k in 1:nrow(negation_df)){
         vec_array[k,'text'] <- gsub(",","",toString(vec1))
         }
       }
-      #Wenn Dokument keine Negierungen aus dem Wörterbuch enthält, dann füge 
-      #Text zu vec_array hinzu
       else {
         vec_array[k,'doc_ID'] <- k
         vec_array[k,'text'] <- gsub(",","",toString(vec1))
@@ -123,23 +110,19 @@ for (k in 1:nrow(negation_df)){
   }
 }
 
-#Erstelle Dataframe aus vec_array
 text_df_changed_negations <- data.frame(vec_array)
 names(text_df_changed_negations)[names(text_df_changed_negations) == 'data.doc_ID'] <-'doc_ID' 
 names(text_df_changed_negations)[names(text_df_changed_negations) == 'data.text'] <-'text' 
-#text_df_changed_negations$doc_ID <- as.numeric(text_df_changed_negations$doc_ID)
 
-#Erstelle Liste bestehend aus Stopwörtern
 stopwords <- c(stopwords('SMART'),'ago','totally','lot','erience','ected','upto','boat rockerz', 'boat')
-#Bereinige Dokumente um Stopwörter
+#Clean documents from stop words
 text_df_changed_negations$text <- removeWords(text_df_changed_negations$text, stopwords)
-#Entferne erneut überflüssige Leerzeichen
+#Remove unnecessary spaces again
 text_df_changed_negations$text<- stripWhitespace(text_df_changed_negations$text)
-#rEntferne leere Dokumente falls vorhanden
+#Remove empty documents if present
 text_df_changed_negations <- text_df_changed_negations[text_df_changed_negations$text != "",]
 text_df_cleaned <- text_df_changed_negations
-#Erstelle Corpus und TDM um mittels einer wordcloud die Pre-processing-Ergebnisse
-#zu analysieren
+#Create Corpus and TDM to use a wordcloud to #analyze pre-processing results to analyze
 corpus<- Corpus(VectorSource(text_df_cleaned$text))
 tdm.wordcloud <- TermDocumentMatrix(corpus)
 matrix <- as.matrix(tdm.wordcloud)
@@ -148,10 +131,6 @@ df1 <- data.frame(word = names(words),freq=words)
 wordcloud(words = df1$word, freq = df1$freq, min.freq = 2,           
           max.words=100, random.order=FALSE, rot.per=0.35,            
           colors=brewer.pal(8, "Dark2"))
-
-#Implementierung der Funktion zur Aufgabe - Implement a function to obtain the cumulative frequencies of all words from the 
-#text that have been mentioned at least twice over all texts from your corpus. 
-#Save the results as a .csv file and add it to your submission file. -
 
 export_frequent_words <- function(df, lower_freq_threshold){
   corpus<- Corpus(VectorSource(df))
@@ -167,28 +146,27 @@ export_frequent_words <- function(df, lower_freq_threshold){
 export_frequent_words(text_df_cleaned$text, 2)
 #Abspeicherung der Wörterliste mit Fequenzen
 write.csv(export_frequent_words(text_df_cleaned$text, 2),
-          "/Users/gilbert/Documents/Wise22:23/Text Mining/A4/Wordfrequencies_exported.csv", 
+          "Your_path.csv", 
           row.names=FALSE)
-
-##################### - Durchführung Clusteranalyse - ##########################
+                                                           
 dtm_bow <- DocumentTermMatrix(corpus)
 
+#Remove words that do not appear in more than 2% of documents                                                        
 dtm_bow_98 <- removeSparseTerms(dtm_bow,0.98)
-#Entferne Wörter die nicht in mehr als 2% der Dokumente vorkommen
 
+#Remove words that do not appear in more than 4% of documents                                                          
 dtm_bow_96 <- removeSparseTerms(dtm_bow,0.96)
-#Entferne Wörter die nicht in mehr als 4% der Dokumente vorkommen
 
+#Remove words that do not appear in more than 6% of documents                                                          
 dtm_bow_94 <- removeSparseTerms(dtm_bow,0.94)
-#Entferne Wörter die nicht in mehr als 6% der Dokumente vorkommen
-
+                                                           
+#Remove words that do not appear in more than 8% of documents                                                          
 dtm_bow_92 <- removeSparseTerms(dtm_bow,0.92)
-#Entferne Wörter die nicht in mehr als 8% der Dokumente vorkommen
 
+#Remove words that do not appear in more than 10% of documents                                                                                                                 
 dtm_bow_90 <- removeSparseTerms(dtm_bow,0.90)
-#Entferne Wörter die nicht in mehr als 10% der Dokumente vorkommen
 
-#Transformiere jeweilige Matrizen mit TD-IDF-Werten
+#Transform respective matrices - TD-IDF values
 dtm_tfidf <- weightTfIdf(dtm_bow)
 dtm_tfidf_98 <- weightTfIdf(dtm_bow_98)
 dtm_tfidf_96 <- weightTfIdf(dtm_bow_96)
@@ -203,7 +181,7 @@ dtm_tfidf_matrix_94 <- as.matrix(dtm_tfidf_94)
 dtm_tfidf_matrix_92 <- as.matrix(dtm_tfidf_92)
 dtm_tfidf_matrix_90 <- as.matrix(dtm_tfidf_90)
 
-#Erstelle-Distanzmatrizen für die euklidische Distanz und die jeweiligen Sparsity-Level
+#Create distance matrices for the Euclidean distance and the respective sparsity levels
 distMatrix_tfidf_euclidean <- dist(dtm_tfidf_matrix, method = 'euclidean')
 distMatrix_tfidf_euclidean_98 <- dist(dtm_tfidf_matrix_98, method = 'euclidean')
 distMatrix_tfidf_euclidean_96 <- dist(dtm_tfidf_matrix_96, method = 'euclidean')
@@ -221,12 +199,12 @@ detect_optimal_ncluster <- function(dtm_matrix,distMatrix,method,kmax){
   
 }
 
-#Erstelle Graph für Ellenbogenkriterium für Ausgangsmatrix
+#Create graph for elbow criterion for output matrix
 detect_optimal_ncluster(dtm_tfidf_matrix,distMatrix_tfidf_euclidean , "wss", 20)
 #Erstelle Graph für Silhouetten-Kriterium für Ausgangsmatrix
 detect_optimal_ncluster(dtm_tfidf_matrix,distMatrix_tfidf_euclidean, "silhouette", 20)
 
-#Erstelle jeweilige Graphen für die verschiedenen Sparsity-Level
+#Create respective graphs for the different sparsity levels
 detect_optimal_ncluster(dtm_tfidf_matrix_98, distMatrix_tfidf_euclidean_98, "wss", 20)
 detect_optimal_ncluster(dtm_tfidf_matrix_98, distMatrix_tfidf_euclidean_98, "silhouette", 20)
 
@@ -242,32 +220,29 @@ detect_optimal_ncluster(dtm_tfidf_matrix_92, distMatrix_tfidf_euclidean_92, "sil
 detect_optimal_ncluster(dtm_tfidf_matrix_90, distMatrix_tfidf_euclidean_90, "wss", 20)
 detect_optimal_ncluster(dtm_tfidf_matrix_90, distMatrix_tfidf_euclidean_90, "silhouette", 20)
 
-#Erstelle Funktion clusterhc die aus einer jewieligen Distanzmatrix und -methode eine agglomerative
-#Clusteranalyse durchführt
+#Create function clusterhc that performs an agglomerative cluster analysis from a given distance matrix and method cluster analysis
 clusterhc <- function(distMatrix,method){
   return(hclust(distMatrix, method = method))
 }
 
-#Erstelle eine Funktion die die Clusterzuweisungen je Dokument wiedergibt
+#Create a function that returns the cluster assignments per document
 generate_labels <- function(clusterhc,num_cluster){
   return(cutree(clusterhc, k = num_cluster))
 }
 
-#Erstelle eine Funktion die den bereinigten Ausgangsdatensatz  
-#text_df_cleaned um die Spalte mit den jeweiligen Clusternummern ergänzt
+#Create a function that adds the cleaned output dataset text_df_cleaned by the column with the respective cluster numbers
 generate_df <- function(labels){
   return(mutate(text_df_cleaned, cluster = labels))
 }
 
-#Erstelle eine Funktion mit der ein Dendrogram visualisiert werden kann
+#Create a function with which a dendrogram can be visualized
 plot_dendogram<- function(dist_matrix_input, method){
   
   cluster <- hclust(dist_matrix_input, method = method)
   plot(cluster, hang = -1, cex=0.9)
 }
 
-#vergleiche Cluster die mit Single-Linkage-Methode erstellt wurden für die 
-#jeweiligen Sparsity level und der jeweiligen optimalen Anzahl an Clustern
+#compare clusters created with single-linkage method for the appropriate respective sparsity level and the respective optimal number of clusters
 generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean,'single'),3))
 count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean,'single'),3)),cluster),cluster)
 
@@ -286,7 +261,6 @@ count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_
 generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_90,'single'),11))
 count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_90,'single'),11)),cluster),cluster)
 
-#Erstelle kophenetische Matrix für verwendete Single-Methode und jeweiliges Sparsity-Level
 cophematrix_single_tfidf <- cophenetic(clusterhc(distMatrix_tfidf_euclidean,'single'))
 cophematrix_single_tfidf_98 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_98,'single'))
 cophematrix_single_tfidf_96 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_96,'single'))
@@ -294,9 +268,9 @@ cophematrix_single_tfidf_94 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_9
 cophematrix_single_tfidf_92 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_92,'single'))
 cophematrix_single_tfidf_90 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_90,'single'))
 
-#Berechne Korrelationskoeffizienten aus kophenetischer Matrix und Ausgangsdistanzmatrix
-#Je höher Korrelation, desto besser passt die Distanzmethode und desto besser bildet das
-#Dendrogram die tatsächlichen Distanzen ab
+#Calculate correlation coefficients from cophenetic matrix and output distance matrix.
+#The higher the correlation, the better the distance method fits and the better the
+#Dendrogram represents the actual distances
 cor(distMatrix_tfidf_euclidean,cophematrix_single_tfidf)
 cor(distMatrix_tfidf_euclidean_98,cophematrix_single_tfidf_98)
 cor(distMatrix_tfidf_euclidean_96,cophematrix_single_tfidf_96)
@@ -304,32 +278,26 @@ cor(distMatrix_tfidf_euclidean_94,cophematrix_single_tfidf_94)
 cor(distMatrix_tfidf_euclidean_92,cophematrix_single_tfidf_92)
 cor(distMatrix_tfidf_euclidean_90,cophematrix_single_tfidf_90)
 
-#Kettenbildung kann identifiziert werden
 plot_dendogram(distMatrix_tfidf_euclidean,'single')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean,'single'), k = 3, border = 2:5)
 
-#Kettenbildung kann identifiziert werden
 plot_dendogram(distMatrix_tfidf_euclidean_98,'single')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_98,'single'), k = 2, border = 2:5)
 
-#Kettenbildung kann identifiziert werden
 plot_dendogram(distMatrix_tfidf_euclidean_96,'single')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_96,'single'), k = 2, border = 2:5)
 
-#Kettenbildung kann identifiziert werden
 plot_dendogram(distMatrix_tfidf_euclidean_94,'single')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_94,'single'), k = 2, border = 2:5)
 
-#Kettenbildung kann identifiziert werden
 plot_dendogram(distMatrix_tfidf_euclidean_92,'single')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_92,'single'), k = 2, border = 2:5)
 
-#Kettenbildung kann identifiziert werden
 plot_dendogram(distMatrix_tfidf_euclidean_90,'single')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_90,'single'), k = 11, border = 2:5)
 
-#vergleiche Cluster die mit Average-Linkage-Methode erstellt wurden für die 
-#jeweiligen Sparsity level und der jeweiligen optimalen Anzahl an Clustern
+#compare clusters created with average linkage method for the #respective 
+#respective sparsity level and the respective optimal number of clusters
 generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean,'average'),3))
 count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean,'average'),3)),cluster),cluster)
 
@@ -348,7 +316,6 @@ count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_
 generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_90,'average'),11))
 count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_90,'average'),11)),cluster),cluster)
 
-#Erstelle kophenetische Matrix für verwendete Average-Linkage-Methode und jeweiliges Sparsity-Level
 cophematrix_average_tfidf <- cophenetic(clusterhc(distMatrix_tfidf_euclidean,'average'))
 cophematrix_average_tfidf_98 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_98,'average'))
 cophematrix_average_tfidf_96 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_96,'average'))
@@ -356,7 +323,6 @@ cophematrix_average_tfidf_94 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_
 cophematrix_average_tfidf_92 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_92,'average'))
 cophematrix_average_tfidf_90 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_90,'average'))
 
-#Berechne Korrelationskoeffizienten aus kophenetischer Matrix und Ausgangsdistanzmatrix
 cor(distMatrix_tfidf_euclidean,cophematrix_average_tfidf)
 cor(distMatrix_tfidf_euclidean_98,cophematrix_average_tfidf_98)
 cor(distMatrix_tfidf_euclidean_96,cophematrix_average_tfidf_96)
@@ -364,32 +330,26 @@ cor(distMatrix_tfidf_euclidean_94,cophematrix_average_tfidf_94)
 cor(distMatrix_tfidf_euclidean_92,cophematrix_average_tfidf_92)
 cor(distMatrix_tfidf_euclidean_90,cophematrix_average_tfidf_90)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean,'average')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean,'average'), k = 3, border = 2:5)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_98,'average')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_98,'average'), k = 2, border = 2:5)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_96,'average')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_96,'average'), k = 2, border = 2:5)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_94,'average')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_94,'average'), k = 2, border = 2:5)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_92,'average')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_92,'average'), k = 2, border = 2:5)
 
-#Mäßige Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_90,'average')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_90,'average'), k = 11, border = 2:5)
 
-#vergleiche Cluster die mit Complete-Linkage-Methode erstellt wurden für die 
-#jeweiligen Sparsity level und der jeweiligen optimalen Anzahl an Clusterngenerate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean,'complete'),3))
+#compare clusters created with complete linkage method for the respective sparsity level and the respective optimal number of clusters
+generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean,'complete'),3))
 count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean,'complete'),3)),cluster),cluster)
 
 generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_98,'complete'),2))
@@ -407,7 +367,6 @@ count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_
 generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_90,'complete'),11))
 count(group_by(generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_90,'complete'),11)),cluster),cluster)
 
-#Erstelle kophenetische Matrix für verwendete Complete-Linkage-Methode und jeweiliges Sparsity-Level
 cophematrix_complete_tfidf <- cophenetic(clusterhc(distMatrix_tfidf_euclidean,'complete'))
 cophematrix_complete_tfidf_98 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_98,'complete'))
 cophematrix_complete_tfidf_96 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_96,'complete'))
@@ -415,7 +374,6 @@ cophematrix_complete_tfidf_94 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean
 cophematrix_complete_tfidf_92 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_92,'complete'))
 cophematrix_complete_tfidf_90 <- cophenetic(clusterhc(distMatrix_tfidf_euclidean_90,'complete'))
 
-#Berechne Korrelationskoeffizienten aus kophenetischer Matrix und Ausgangsdistanzmatrix
 cor(distMatrix_tfidf_euclidean,cophematrix_complete_tfidf)
 cor(distMatrix_tfidf_euclidean_98,cophematrix_complete_tfidf_98)
 cor(distMatrix_tfidf_euclidean_96,cophematrix_complete_tfidf_96)
@@ -423,33 +381,25 @@ cor(distMatrix_tfidf_euclidean_94,cophematrix_complete_tfidf_94)
 cor(distMatrix_tfidf_euclidean_92,cophematrix_complete_tfidf_92)
 cor(distMatrix_tfidf_euclidean_90,cophematrix_complete_tfidf_90)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean,'complete')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean,'complete'), k = 3, border = 2:5)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_98,'complete')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_98,'complete'), k = 2, border = 2:5)
 
-#Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_96,'complete')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_96,'complete'), k = 2, border = 2:5)
 
-#Mäßige Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_94,'complete')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_94,'complete'), k = 2, border = 2:5)
 
-#Mäßige Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_92,'complete')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_92,'complete'), k = 2, border = 2:5)
 
-#Mäßige Kettenbildung
 plot_dendogram(distMatrix_tfidf_euclidean_90,'complete')
 rect.hclust(clusterhc(distMatrix_tfidf_euclidean_90,'complete'), k = 11, border = 2:5)
 
-##################### - Deskriptive Analyse der Cluster - ######################
-
-#Erstelle Funktion die die Wörter mit der höchsten Frequenz je Cluster plottet
+#Create function that plots the words with the highest frequency per cluster
 print_cluster_freqanalysis<- function(df,cluster,max_words){
   
   df <- df[as.numeric(df$cluster) == cluster,]
@@ -462,7 +412,7 @@ print_cluster_freqanalysis<- function(df,cluster,max_words){
   par(mar=c(6,7,4,2)+.1)
 }
 
-#Wähle Average-Linkage-Distanz-Methode mit 11 Cluster und Sparsity von 90% (Begründung siehe Report)
+#Choose average linkage distance method with 11 clusters and sparsity of 90% (see report for justification)
 average_df_90 <- generate_df(generate_labels(clusterhc(distMatrix_tfidf_euclidean_90,'average'),11))
 par(mfrow = c(4,3))
 for (i in 1:11){
@@ -473,22 +423,18 @@ for (i in 1:11){
 }
 par(mfrow = c(1,1))
 
-#Weise die jeweiligen NRC Sentimente/Emotionen dem Text aus Ziel-Dataframe zu
+#assign the respective NRC sentiments/emotions to the text from target dataframe
 d <- get_nrc_sentiment(average_df_90$text)
-#Hänge erstellte Vektoren an das Zieldataframe
+#Append created vectors to the target dataframe
 average_df_90 <- cbind(average_df_90,d)
-#Nimm nur die NRC-SPalten und die jeweilige Clusternummer
+#Take only the NRC columns and the respective cluster number
 df1_sentiment <- average_df_90[,3:ncol(average_df_90)]
-#Unterteile Dataframe in Gruppen, wobei jede Gruppe ein Cluster mit den 
-#jweiligen Dokumenten und NRC-Werten enthält
 df2_sentiment<- split(df1_sentiment, f=df1_sentiment$cluster)
 
 
 colnames <- c('cluster',"anger","anticipation","disgust","fear","joy","sadness"
               ,"surprise","trust","negative","positive") 
 
-#Plotte für jedes Cluster die Anzahl an vergebenen Sentimenten/Emotionen
-#welche je Wort gezählt werden
 par(mfrow = c(4,3))
 for (i in 1:length(df2_sentiment)){
   
@@ -513,16 +459,13 @@ for (i in 1:length(df2_sentiment)){
 }
 par(mfrow = c(1,1))
 
-#Plotte die Verteilung der Net-Sentiment-Scores für jedes Cluster
 syuzhet_vector <- get_sentiment(average_df_90$text, method="syuzhet")
 average_df_90$sentiment_score <- syuzhet_vector
 sentiment_scores <- average_df_90$sentiment_score
 df_sentiment_scores <- data.frame(cluster=average_df_90$cluster,sentiment_score=average_df_90$sentiment_score)
 df_sentiment_scores_2 <- split(df_sentiment_scores, f=df_sentiment_scores$cluster)
-#Plotte erst für gesamten bereinigten Datensatz
 hist(sentiment_scores)
 
-#Plotte Verteilung für jedes Cluster
 par(mfrow = c(3,4))
 for (i in 1:length(df_sentiment_scores_2)){
   
@@ -535,4 +478,3 @@ for (i in 1:length(df_sentiment_scores_2)){
        ylab='score')
 }
 par(mfrow = c(1,1))
-
